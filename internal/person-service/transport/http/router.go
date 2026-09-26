@@ -8,6 +8,7 @@ import "github.com/gin-gonic/gin"
 func NewRouter(svc PersonService) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
+	_ = r.SetTrustedProxies(nil) // Прод-логи дополнительно чистятся переменной GIN_MODE=release.
 	registerRoutes(r, svc)
 	return r
 }

@@ -25,9 +25,9 @@ func main() {
 
 	// 2. Composition root: собираем слои снизу вверх.
 	//    Каждый конструктор получает зависимость аргументом (constructor injection).
-	repo := repository.NewPersonRepository(db)     // repository зависит от db
-	svc := service.NewPersonService(repo)          // service зависит от порта PersonRepository
-	router := http.NewRouter(svc)                  // transport зависит от порта PersonService
+	repo := repository.NewPersonRepository(db) // repository зависит от db
+	svc := service.NewPersonService(repo)      // service зависит от порта PersonRepository
+	router := http.NewRouter(svc)              // transport зависит от порта PersonService
 
 	// 3. Запуск. Маршруты зарегистрированы в transport/http/router.go.
 	log.Printf("Server starting on port %s", cfg.ServerPort)
