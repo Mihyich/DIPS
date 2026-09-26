@@ -28,8 +28,8 @@ type mockPersonService struct {
 	deleteErr  error
 	lastCreate domain.Person
 	lastUpdate struct {
-		id int64
-		p  domain.Person
+		id    int64
+		patch domain.PersonPatch
 	}
 	lastDeleteID int64
 }
@@ -47,9 +47,9 @@ func (m *mockPersonService) CreatePerson(p domain.Person) (*domain.Person, error
 	return m.person, m.createErr
 }
 
-func (m *mockPersonService) UpdatePerson(id int64, p domain.Person) (*domain.Person, error) {
+func (m *mockPersonService) UpdatePerson(id int64, patch domain.PersonPatch) (*domain.Person, error) {
 	m.lastUpdate.id = id
-	m.lastUpdate.p = p
+	m.lastUpdate.patch = patch
 	return m.person, m.updateErr
 }
 
@@ -153,13 +153,33 @@ func TestUpdatePerson_NotFound_Returns404(t *testing.T) {
 	svc := &mockPersonService{updateErr: domain.ErrNotFound}
 	r := setupRouter(svc)
 
-	body, _ := json.Marshal(dto.PersonRequest{Name: "Ivan"})
-	req, _ := http.NewRequest("PATCH", "/api/v1/persons/999", bytes.NewBuffer(body))
+	req, _ := http.NewRequest("PATCH", "/api/v1/persons/999", bytes.NewBufferString(`{"name":"Ivan"}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// TestUpdatePerson_PartialBody_ForwardsOnlyProvidedFields — тело PATCH без
+// work/age/address: в сервис должны уйти только name (остальные — nil),
+// иначе неизменённые поля будут затёрты нулями.
+func TestUpdatePerson_PartialBody_ForwardsOnlyProvidedFields(t *testing.T) {
+	svc := &mockPersonService{person: &domain.Person{ID: 7, Name: "Ivan Jr"}}
+	r := setupRouter(svc)
+
+	req, _ := http.NewRequest("PATCH", "/api/v1/persons/7", bytes.NewBufferString(`{"name":"Ivan Jr"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, int64(7), svc.lastUpdate.id)
+	assert.NotNil(t, svc.lastUpdate.patch.Name)
+	assert.Equal(t, "Ivan Jr", *svc.lastUpdate.patch.Name)
+	assert.Nil(t, svc.lastUpdate.patch.Age)     // поля не было → nil
+	assert.Nil(t, svc.lastUpdate.patch.Address) // поля не было → nil
+	assert.Nil(t, svc.lastUpdate.patch.Work)    // поля не было → nil
 }
 
 func TestDeletePerson_Success_Returns204(t *testing.T) {

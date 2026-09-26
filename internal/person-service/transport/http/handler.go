@@ -17,7 +17,7 @@ type PersonService interface {
 	GetPersons() ([]domain.Person, error)
 	GetPersonByID(id int64) (*domain.Person, error)
 	CreatePerson(p domain.Person) (*domain.Person, error)
-	UpdatePerson(id int64, p domain.Person) (*domain.Person, error)
+	UpdatePerson(id int64, patch domain.PersonPatch) (*domain.Person, error)
 	DeletePerson(id int64) error
 }
 
@@ -108,7 +108,6 @@ func (h *PersonHandler) CreatePerson(c *gin.Context) {
 		return
 	}
 
-	// Требование ТЗ: 201 Created + заголовок Location.
 	c.Header("Location", "/api/v1/persons/"+strconv.FormatInt(person.ID, 10))
 	c.JSON(http.StatusCreated, gin.H{})
 }
@@ -118,7 +117,7 @@ func (h *PersonHandler) CreatePerson(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param id path int true "Person ID"
-// @Param person body dto.PersonRequest true "Person data"
+// @Param person body dto.PersonPatchRequest true "Partial person data"
 // @Success 200 {object} dto.PersonResponse
 // @Failure 400 {object} dto.ValidationErrorResponse
 // @Failure 404 {object} dto.ErrorResponse
@@ -130,7 +129,8 @@ func (h *PersonHandler) UpdatePerson(c *gin.Context) {
 		return
 	}
 
-	var req dto.PersonRequest
+	// PATCH: тело с указателями — сервису важен только факт передачи поля.
+	var req dto.PersonPatchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.ValidationErrorResponse{
 			Message: "Validation failed",
@@ -144,6 +144,7 @@ func (h *PersonHandler) UpdatePerson(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
+
 	c.JSON(http.StatusOK, dto.NewPersonResponse(*person))
 }
 

@@ -31,24 +31,23 @@ func (s *PersonService) CreatePerson(p domain.Person) (*domain.Person, error) {
 	return &p, nil
 }
 
-func (s *PersonService) UpdatePerson(id int64, p domain.Person) (*domain.Person, error) {
+// UpdatePerson — частичное обновление (PATCH): меняются только переданные
+// поля, неизменённые сохраняются. Полная замена была бы семантикой PUT.
+func (s *PersonService) UpdatePerson(id int64, patch domain.PersonPatch) (*domain.Person, error) {
 	// Порядок проверок = контракт OpenAPI: сначала 404 (нет записи),
 	// потом 400 (нарушено бизнес-правило).
 	existing, err := s.repo.FindByID(id)
 	if err != nil {
 		return nil, err
 	}
-	if err := p.Validate(); err != nil {
+	if err := patch.Validate(); err != nil {
 		return nil, err
 	}
-	existing.Name = p.Name
-	existing.Age = p.Age
-	existing.Address = p.Address
-	existing.Work = p.Work
-	if err := s.repo.Update(existing); err != nil {
+	updated := patch.ApplyTo(*existing)
+	if err := s.repo.Update(&updated); err != nil {
 		return nil, err
 	}
-	return existing, nil
+	return &updated, nil
 }
 
 func (s *PersonService) DeletePerson(id int64) error {

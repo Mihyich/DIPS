@@ -79,6 +79,11 @@ func (m *mockPersonRepository) Delete(id int64) error {
 // Тесты бизнес-логики сервиса
 // ============================================================
 
+// strPtr / intPtr — удобители для полей-указателей в domain.PersonPatch:
+// nil означает «поле не передано», непустой указатель — «обновить».
+func strPtr(s string) *string { return &s }
+func intPtr(i int) *int       { return &i }
+
 func TestCreatePerson_ValidRequest_PersistsAndReturnsID(t *testing.T) {
 	repo := newMockPersonRepository()
 	svc := NewPersonService(repo)
@@ -119,7 +124,7 @@ func TestUpdatePerson_Missing_ReturnsErrNotFound(t *testing.T) {
 	repo := newMockPersonRepository()
 	svc := NewPersonService(repo)
 
-	person, err := svc.UpdatePerson(999, domain.Person{Name: "Ivan"})
+	person, err := svc.UpdatePerson(999, domain.PersonPatch{Name: strPtr("Ivan")})
 
 	assert.Nil(t, person)
 	assert.ErrorIs(t, err, domain.ErrNotFound)
@@ -130,12 +135,55 @@ func TestUpdatePerson_Existing_ChangesFields(t *testing.T) {
 	svc := NewPersonService(repo)
 	_, _ = svc.CreatePerson(domain.Person{Name: "Ivan", Age: 30})
 
-	updated, err := svc.UpdatePerson(1, domain.Person{Name: "Ivan Jr", Age: 31})
+	updated, err := svc.UpdatePerson(1, domain.PersonPatch{Name: strPtr("Ivan Jr"), Age: intPtr(31)})
 
 	assert.NoError(t, err)
 	assert.Equal(t, "Ivan Jr", updated.Name)
 	assert.Equal(t, 31, updated.Age)
 	assert.Equal(t, int64(1), updated.ID) // ID не изменился
+}
+
+// TestUpdatePerson_PartialPatch_PreservesUnspecifiedFields — регрессия на баг
+// интеграционных тестов: PATCH приходит с полями только name и address,
+// а work/age обязаны сохраниться (раньше затирались нулевыми значениями).
+func TestUpdatePerson_PartialPatch_PreservesUnspecifiedFields(t *testing.T) {
+	repo := newMockPersonRepository()
+	svc := NewPersonService(repo)
+	_, _ = svc.CreatePerson(domain.Person{Name: "Ivan", Age: 31, Address: "Moscow", Work: "BMSTU"})
+
+	updated, err := svc.UpdatePerson(1, domain.PersonPatch{
+		Name:    strPtr("Petr"),
+		Address: strPtr("Tula"),
+	})
+
+	assert.NoError(t, err)
+	assert.Equal(t, "Petr", updated.Name)    // передано → изменено
+	assert.Equal(t, "Tula", updated.Address) // передано → изменено
+	assert.Equal(t, 31, updated.Age)         // НЕ передано → сохранилось (не 0)
+	assert.Equal(t, "BMSTU", updated.Work)   // НЕ передано → сохранилось (не "")
+	assert.Equal(t, int64(1), updated.ID)
+}
+
+func TestUpdatePerson_InvalidName_ReturnsValidationError(t *testing.T) {
+	cases := map[string]domain.PersonPatch{
+		"no name field": {},                 // спека: name обязателен
+		"empty name":    {Name: strPtr("")}, // бизнес-правило домена
+	}
+	for name, patch := range cases {
+		t.Run(name, func(t *testing.T) {
+			repo := newMockPersonRepository()
+			svc := NewPersonService(repo)
+			_, _ = svc.CreatePerson(domain.Person{Name: "Ivan"})
+
+			person, err := svc.UpdatePerson(1, patch)
+
+			assert.Nil(t, person)
+			var verr *domain.ValidationError
+			assert.ErrorAs(t, err, &verr) // ошибка именно валидации
+			assert.Equal(t, "Name is required", verr.Fields["name"])
+			assert.Equal(t, "Ivan", repo.persons[1].Name) // в "БД" ничего не изменилось
+		})
+	}
 }
 
 func TestDeletePerson_Missing_ReturnsErrNotFound(t *testing.T) {
