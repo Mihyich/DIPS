@@ -14,5 +14,21 @@ services:
     ports:
       - "5432:5432"
 
+  app:
+    build: .
+    container_name: person-service
+    restart: on-failure
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: program
+      DB_PASSWORD: test
+      DB_NAME: persons
+      SERVER_PORT: "8080"
+    depends_on:
+      - postgres
+    ports:
+      - "8080:8080"
+
 volumes:
   db-data:
