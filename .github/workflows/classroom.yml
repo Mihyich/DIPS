@@ -1,0 +1,80 @@
+name: Build, test and deploy
+
+on:
+  push:
+    branches: [ lab1 ]
+  pull_request:
+    branches: [ lab1 ]
+
+jobs:
+  ci-cd:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Сборка Docker-образа
+      # По умолчанию ищется Dockerfile и дополнительно присваивается метка web
+      - name: Build the Docker image
+        run: docker build -t web .
+
+      # Прогон unit-тестов
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run unit tests
+        run: |
+          go vet ./...
+          go test ./... -v -cover
+
+      # Деплой на Render (только push; на PR секретов нет)
+      - name: Deploy to Render
+        if: github.event_name == 'push'
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "::error::Не задан секрет RENDER_DEPLOY_HOOK_URL (Settings -> Secrets and variables -> Actions)"
+            exit 1
+          fi
+          curl --fail --silent --show-error -X POST "$RENDER_DEPLOY_HOOK_URL"
+
+      # Интеграционные тесты (Newman): Ожидание когда Render будет живой
+      - name: Wait for the service to become ready
+        if: github.event_name == 'push'
+        env:
+          BASE_URL: ${{ secrets.RENDER_BASE_URL }}
+        run: |
+          if [ -z "$BASE_URL" ]; then
+            echo "::error::Не задан секрет RENDER_BASE_URL"
+            exit 1
+          fi
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/api/v1/persons" || true)
+            echo "attempt $i: HTTP $code"
+            if [ "$code" = "200" ]; then
+              echo "service is ready"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Сервис не поднялся за 10 минут"
+          exit 1
+
+      - name: Set up Node.js
+        if: github.event_name == 'push'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run integration tests (Newman)
+        if: github.event_name == 'push'
+        env:
+          BASE_URL: ${{ secrets.RENDER_BASE_URL }}
+        run: |
+          npx newman run "postman/[inst] Lab1.postman_collection.json" \
+            -e "postman/[inst][local] Lab1.postman_environment.json" \
+            --env-var baseUrl="$BASE_URL"
